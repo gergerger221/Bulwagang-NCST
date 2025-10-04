@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Validation Demo - Bulwagang NCST</title>
+    <link rel="stylesheet" href="css/bootstrap.min.css">
+    <link rel="stylesheet" href="css/sweetalert2.min.css">
+    <script src="js/sweetalert2.all.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .demo-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 600px;
+            margin: 0 auto;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+        .demo-header h1 {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 700;
+            text-align: center;
+        }
+        .form-control.is-valid {
+            border-color: #28a745;
+            background-color: rgba(40, 167, 69, 0.1);
+            box-shadow: 0 0 6px rgba(40, 167, 69, 0.3);
+        }
+        .form-control.is-invalid {
+            border-color: #dc3545;
+            background-color: rgba(220, 53, 69, 0.1);
+            box-shadow: 0 0 6px rgba(220, 53, 69, 0.3);
+        }
+        .form-control.is-loading {
+            border-color: #ffc107;
+            background-color: rgba(255, 193, 7, 0.1);
+            box-shadow: 0 0 6px rgba(255, 193, 7, 0.3);
+            animation: loading-pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes loading-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+        .feedback-message {
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+            padding: 0.25rem 0;
+            font-weight: 500;
+        }
+        .valid-feedback { color: #28a745; }
+        .invalid-feedback { color: #dc3545; }
+        .loading-feedback { color: #ffc107; }
+        .loading-feedback::before { content: "⏳ "; }
+        .test-emails {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .test-email {
+            display: inline-block;
+            background: #e9ecef;
+            padding: 5px 10px;
+            margin: 3px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .test-email:hover {
+            background: #667eea;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <div class="demo-header">
+            <h1>📧 Email Validation Demo</h1>
+            <p class="text-muted text-center">Test the real-time email validation system</p>
+        </div>
+
+        <form id="demoForm">
+            <div class="mb-3">
+                <label for="email" class="form-label">Email Address</label>
+                <input type="email" id="email" name="email" class="form-control" 
+                       placeholder="Enter an email address to test validation">
+                <div id="email-feedback" class="feedback-message" style="display: none;"></div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary w-100">Test Submit</button>
+        </form>
+
+        <div class="test-emails">
+            <h6>Quick Test Emails (click to try):</h6>
+            <div class="test-email" onclick="testEmail('test@gmail.com')">test@gmail.com</div>
+            <div class="test-email" onclick="testEmail('invalid-email')">invalid-email</div>
+            <div class="test-email" onclick="testEmail('user@nonexistentdomain12345.com')">user@nonexistentdomain12345.com</div>
+            <div class="test-email" onclick="testEmail('admin@tempmail.org')">admin@tempmail.org</div>
+            <div class="test-email" onclick="testEmail('real@yahoo.com')">real@yahoo.com</div>
+        </div>
+
+        <div class="alert alert-info">
+            <h6>Validation Process:</h6>
+            <ol class="mb-0">
+                <li><strong>Format Check:</strong> Valid email format</li>
+                <li><strong>Domain Check:</strong> Domain exists and accepts email</li>
+                <li><strong>Disposable Check:</strong> Not a temporary email service</li>
+                <li><strong>SMTP Check:</strong> Email address actually exists</li>
+            </ol>
+        </div>
+
+        <div class="text-center mt-4">
+            <a href="view.php" class="btn btn-outline-primary">🏠 Back to Main Form</a>
+            <a href="admin.php" class="btn btn-outline-success">👨‍💼 Admin Dashboard</a>
+        </div>
+    </div>
+
+    <script>
+        const emailField = document.getElementById('email');
+        let emailTimeout;
+
+        function testEmail(email) {
+            emailField.value = email;
+            emailField.focus();
+            validateEmailRealTime(email);
+        }
+
+        function validateEmailRealTime(email) {
+            if (!email || email.length < 5) {
+                resetEmailValidation();
+                return;
+            }
+            
+            showEmailValidationState('loading', 'Checking email...');
+            
+            fetch('validate-email.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email: email })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Validation result:', data);
+                if (data.valid) {
+                    showEmailValidationState('valid', '✓ Email verified and deliverable');
+                } else {
+                    showEmailValidationState('invalid', data.message || 'Email validation failed');
+                }
+            })
+            .catch(error => {
+                console.error('Email validation error:', error);
+                showEmailValidationState('warning', 'Could not verify email - validation service unavailable');
+            });
+        }
+
+        function showEmailValidationState(state, message) {
+            const emailField = document.getElementById('email');
+            const feedbackDiv = document.getElementById('email-feedback');
+            
+            // Remove all validation classes
+            emailField.classList.remove('is-valid', 'is-invalid', 'is-loading');
+            feedbackDiv.classList.remove('valid-feedback', 'invalid-feedback', 'loading-feedback');
+            
+            // Add appropriate classes
+            switch(state) {
+                case 'valid':
+                    emailField.classList.add('is-valid');
+                    feedbackDiv.classList.add('valid-feedback');
+                    break;
+                case 'invalid':
+                    emailField.classList.add('is-invalid');
+                    feedbackDiv.classList.add('invalid-feedback');
+                    break;
+                case 'loading':
+                    emailField.classList.add('is-loading');
+                    feedbackDiv.classList.add('loading-feedback');
+                    break;
+                case 'warning':
+                    feedbackDiv.classList.add('loading-feedback');
+                    break;
+            }
+            
+            feedbackDiv.textContent = message;
+            feedbackDiv.style.display = 'block';
+        }
+
+        function resetEmailValidation() {
+            const emailField = document.getElementById('email');
+            const feedbackDiv = document.getElementById('email-feedback');
+            
+            emailField.classList.remove('is-valid', 'is-invalid', 'is-loading');
+            if (feedbackDiv) {
+                feedbackDiv.style.display = 'none';
+            }
+        }
+
+        // Real-time validation
+        emailField.addEventListener('input', function() {
+            clearTimeout(emailTimeout);
+            emailTimeout = setTimeout(() => {
+                validateEmailRealTime(this.value.trim());
+            }, 1000);
+        });
+
+        emailField.addEventListener('blur', function() {
+            clearTimeout(emailTimeout);
+            if (this.value.trim()) {
+                validateEmailRealTime(this.value.trim());
+            }
+        });
+
+        // Form submission
+        document.getElementById('demoForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const email = emailField.value.trim();
+            
+            if (!email) {
+                Swal.fire('Error', 'Please enter an email address', 'error');
+                return;
+            }
+
+            Swal.fire({
+                title: 'Testing Email Validation',
+                text: 'Validating: ' + email,
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+
+            fetch('validate-email.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email: email })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.valid) {
+                    Swal.fire({
+                        title: 'Valid Email! ✅',
+                        html: `
+                            <p><strong>Email:</strong> ${email}</p>
+                            <p><strong>Status:</strong> ${data.message}</p>
+                            <hr>
+                            <small>This email would be accepted for audition submission.</small>
+                        `,
+                        icon: 'success'
+                    });
+                } else {
+                    Swal.fire({
+                        title: 'Invalid Email ❌',
+                        html: `
+                            <p><strong>Email:</strong> ${email}</p>
+                            <p><strong>Reason:</strong> ${data.message}</p>
+                            <hr>
+                            <small>This email would be rejected for audition submission.</small>
+                        `,
+                        icon: 'error'
+                    });
+                }
+            })
+            .catch(error => {
+                Swal.fire('Error', 'Validation service error: ' + error.message, 'error');
+            });
+        });
+    </script>
+</body>
+</html>
