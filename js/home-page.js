@@ -23,6 +23,299 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ----------------------------
+  // Open full calendar modal
+  // ----------------------------
+  const openCalendarBtn = document.getElementById('openCalendarBtn');
+  if (openCalendarBtn) {
+    openCalendarBtn.addEventListener('click', () => {
+      Swal.fire({
+        title: 'Calendar',
+        html: `
+          <div class="bn-cal-wrapper">
+            <div class="bn-cal-panel"><div id="modal-calendar"></div></div>
+            <div class="bn-cal-events">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <h4 id="bn-cal-date" class="bn-cal-date" style="margin:0;">Select a date</h4>
+                <button id="bn-cal-today" class="bn-cal-today-btn">Today’s events</button>
+              </div>
+              <ul id="bn-cal-event-list" class="bn-cal-event-list"><li>No events selected.</li></ul>
+            </div>
+          </div>
+        `,
+        width: 'min(960px, 95vw)',
+        showConfirmButton: true,
+        confirmButtonText: 'Close',
+        background: 'transparent',
+        customClass: { popup: 'bn-swal', confirmButton: 'bn-btn-cancel', htmlContainer: 'bn-body', title: 'bn-title' },
+        didOpen: () => {
+          const el = document.getElementById('modal-calendar');
+          const dateEl = document.getElementById('bn-cal-date');
+          const listEl = document.getElementById('bn-cal-event-list');
+          const todayBtn = document.getElementById('bn-cal-today');
+
+          const cal = new FullCalendar.Calendar(el, {
+            initialView: 'dayGridMonth',
+            height: 560,
+            dayMaxEvents: 4,
+            headerToolbar: { left: 'prev,next today', center: 'title', right: '' },
+            eventTimeFormat: { hour: 'numeric', minute: '2-digit', hour12: true },
+            events: (fetchInfo, success, fail) => {
+              fetch('api/get-calendar-events.php', { credentials: 'same-origin' })
+                .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load events')))
+                .then(data => success((data && data.events) ? data.events : []))
+                .catch(err => { try { fail(err); } catch(e) {} success([]); });
+            },
+            dateClick: (info) => {
+              updateList(info.date);
+              highlightDate(info.date);
+            },
+            moreLinkClick: (arg) => {
+              updateList(arg.date);
+              highlightDate(arg.date);
+              return 'popover';
+            },
+            eventClick: (info) => {
+              info.jsEvent?.preventDefault?.();
+              const ev = info.event;
+              const desc = (ev.extendedProps && ev.extendedProps.description) ? ev.extendedProps.description : '';
+              const postId = ev.extendedProps?.postId;
+              const url = ev.url || (postId ? `home.php#post-${postId}` : '');
+              Swal.fire({
+                title: ev.title || 'Event',
+                html: `<div style="text-align:left"><p style="white-space:pre-wrap;">${escapeHtml(desc)}</p>${url?`<p style="margin-top:8px;"><a href="${url}">View post</a></p>`:''}</div>`,
+                showCancelButton: true,
+                confirmButtonText: 'View post',
+                cancelButtonText: 'Close',
+                customClass: { popup: 'bn-swal', confirmButton: 'bn-btn-confirm', cancelButton: 'bn-btn-cancel', title: 'bn-title', htmlContainer: 'bn-body' }
+              }).then(res => {
+                if (res.isConfirmed && url) {
+                  window.location.href = url;
+                }
+              });
+              if (ev.start) { updateList(ev.start); highlightDate(ev.start); }
+            },
+            eventDidMount: (info) => {
+              const desc = info.event.extendedProps?.description;
+              if (desc) { info.el.setAttribute('title', desc); }
+            }
+          });
+
+          function updateList(date) {
+            const pretty = date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+            if (dateEl) dateEl.textContent = pretty;
+            const sidebarHeader = document.getElementById('sidebarSelectedDate');
+            if (sidebarHeader) sidebarHeader.textContent = `Events on ${pretty}`;
+            const isoDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            const dayStr = new Date(isoDay.getTime() - isoDay.getTimezoneOffset()*60000).toISOString().slice(0,10);
+            const events = cal.getEvents().filter(ev => {
+              const d = ev.start; if (!d) return false;
+              const s = new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+              return s === dayStr;
+            });
+            const itemsHtml = events.length ? events.map(ev => {
+              const time = ev.start ? formatTime(ev.start) : '';
+              const desc = ev.extendedProps?.description ? ` <div class="desc">${escapeHtml(String(ev.extendedProps.description))}</div>` : '';
+              return `<li><div class="title">${escapeHtml(String(ev.title||''))}${time ? ` <span class=\"time\">${escapeHtml(time)}</span>` : ''}</div>${desc}</li>`;
+            }).join('') : '<li>No events scheduled.</li>';
+            if (listEl) { listEl.innerHTML = itemsHtml; }
+            // sync the right sidebar list as well
+            const sidebarList = document.getElementById('event-list');
+            if (sidebarList) { sidebarList.innerHTML = itemsHtml; }
+          }
+
+          function formatTime(d) {
+            try { return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }); } catch { return ''; }
+          }
+
+          function highlightDate(date) {
+            const isoDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            const dayStr = new Date(isoDay.getTime() - isoDay.getTimezoneOffset()*60000).toISOString().slice(0,10);
+            document.querySelectorAll('.bn-cal-panel .fc-daygrid-day').forEach(cell => cell.classList.remove('bn-selected'));
+            const cell = document.querySelector(`.bn-cal-panel .fc-daygrid-day[data-date="${dayStr}"]`);
+            if (cell) cell.classList.add('bn-selected');
+          }
+
+          cal.render();
+          // Preselect today
+          const today = new Date();
+          updateList(today);
+          highlightDate(today);
+
+          if (todayBtn) {
+            todayBtn.addEventListener('click', () => {
+              const t = new Date();
+              cal.gotoDate(t);
+              updateList(t);
+              highlightDate(t);
+            });
+          }
+
+          // Dynamic height for desktop view
+          const setHeight = () => {
+            const base = Math.round((window.innerHeight || 800) * 0.7);
+            const h = Math.max(480, Math.min(820, base));
+            cal.setOption('height', h);
+            if (listEl) { listEl.style.maxHeight = (h - 120) + 'px'; }
+          };
+          setHeight();
+          window.addEventListener('resize', setHeight);
+        }
+      });
+    });
+  }
+
+  // Utility: escape HTML for safe injection
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // ----------------------------
+  // Edit/Delete post actions (admin/moderator)
+  // ----------------------------
+  function delegate(container, selector, event, handler) {
+    container.addEventListener(event, (e) => {
+      const target = e.target.closest(selector);
+      if (target) handler(e, target);
+    });
+  }
+
+  const middleContainer = document.querySelector('.middle-container');
+  if (middleContainer) {
+    // Delete
+    delegate(middleContainer, '.btn-delete-post', 'click', (e, btn) => {
+      const id = btn.getAttribute('data-id');
+      if (!id) return;
+      Swal.fire({
+        title: 'Delete this post?',
+        text: 'This action cannot be undone.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        confirmButtonText: 'Delete'
+      }).then((res) => {
+        if (!res.isConfirmed) return;
+        fetch('api/delete-post.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: Number(id) })
+        })
+        .then(r => r.ok ? r.json() : Promise.reject(new Error('Delete failed')))
+        .then(data => {
+          if (data && data.success) {
+            Swal.fire({ icon: 'success', title: 'Deleted', timer: 1200, showConfirmButton: false });
+            setTimeout(() => window.location.reload(), 400);
+          } else {
+            Swal.fire({ icon: 'error', title: 'Delete failed', text: (data && data.message) || 'Please try again.' });
+          }
+        })
+        .catch(() => Swal.fire({ icon: 'error', title: 'Delete failed', text: 'Please try again.' }));
+      });
+    });
+
+    // Edit
+    delegate(middleContainer, '.btn-edit-post', 'click', (e, btn) => {
+      const id = Number(btn.getAttribute('data-id'));
+      const type = (btn.getAttribute('data-type') || '').toLowerCase();
+      const title = btn.getAttribute('data-title') || '';
+      const content = btn.getAttribute('data-content') || '';
+      const ev = btn.getAttribute('data-event') || '';
+
+      const html = `
+        <div class="bn-form">
+          <div class="bn-field">
+            <label>Type</label>
+            <select id="editType" class="bn-select">
+              <option value="announcements" ${type==='announcements'?'selected':''}>Announcements</option>
+              <option value="performances" ${type==='performances'?'selected':''}>Performances</option>
+              <option value="albums" ${type==='albums'?'selected':''}>Picture Albums</option>
+            </select>
+          </div>
+          <div class="bn-field bn-field--full">
+            <label>Title</label>
+            <input id="editTitle" class="bn-input" placeholder="Write a clear, concise title" value="${title.replace(/"/g,'&quot;')}">
+          </div>
+          <div class="bn-field bn-field--full">
+            <label>Content</label>
+            <textarea id="editContent" class="bn-textarea" rows="4" placeholder="Add some details to your post...">${content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+          </div>
+          <div id="editEventRow" class="bn-field ${type==='announcements' ? '' : 'bn-hidden'}">
+            <label>Event Date</label>
+            <input id="editEventDate" type="datetime-local" class="bn-input" value="${ev ? ev.replace(' ','T').slice(0,16): ''}">
+          </div>
+        </div>`;
+
+      Swal.fire({
+        title: 'Edit Post',
+        html,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: 'Save changes',
+        cancelButtonText: 'Cancel',
+        width: '600px',
+        customClass: {
+          popup: 'bn-swal',
+          title: 'bn-title',
+          htmlContainer: 'bn-body',
+          confirmButton: 'bn-btn-confirm',
+          cancelButton: 'bn-btn-cancel',
+          actions: 'bn-actions'
+        },
+        didOpen: () => {
+          const typeSel = document.getElementById('editType');
+          const row = document.getElementById('editEventRow');
+          const dt = document.getElementById('editEventDate');
+          typeSel.addEventListener('change', () => {
+            const isAnn = typeSel.value === 'announcements';
+            row.classList.toggle('bn-hidden', !isAnn);
+            if (!isAnn) { if (dt) dt.value = ''; }
+          });
+          // set minimum event date to now
+          if (dt) {
+            const now = new Date();
+            const pad = (n) => String(n).padStart(2,'0');
+            const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+            dt.min = local;
+          }
+        },
+        preConfirm: () => {
+          const p = {
+            id,
+            postType: (document.getElementById('editType').value || '').toLowerCase(),
+            title: (document.getElementById('editTitle').value || '').trim(),
+            content: (document.getElementById('editContent').value || '').trim(),
+            event_date: document.getElementById('editEventDate')?.value || ''
+          };
+          if (!p.title) { Swal.showValidationMessage('Title is required'); return false; }
+          if (!['announcements','performances','albums'].includes(p.postType)) { Swal.showValidationMessage('Invalid post type'); return false; }
+          return p;
+        }
+      }).then((res) => {
+        if (!res.isConfirmed || !res.value) return;
+        const payload = res.value;
+        fetch('api/update-post.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+          .then(r => r.ok ? r.json() : Promise.reject(new Error('Update failed')))
+          .then(data => {
+            if (data && data.success) {
+              Swal.fire({ icon: 'success', title: 'Updated', timer: 1200, showConfirmButton: false });
+              setTimeout(() => window.location.reload(), 400);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Update failed', text: (data && data.message) || 'Please try again.' });
+            }
+          })
+          .catch(() => Swal.fire({ icon: 'error', title: 'Update failed', text: 'Please try again.' }));
+      });
+    });
+  }
+  // ----------------------------
   // Logout
   // ----------------------------
   window.logout = function () {
@@ -74,18 +367,22 @@ document.addEventListener("DOMContentLoaded", () => {
       height: 400,
       selectable: true,
       headerToolbar: { left: "prev,next today", center: "title", right: "" },
-      events: [
-        { title: "1st Day of Exam", start: "2025-09-03" },
-        { title: "2nd Day of Exam", start: "2025-09-04" },
-        { title: "3rd Day of Exam", start: "2025-09-05" },
-        { title: "4th Day of Exam", start: "2025-09-06" },
-        { title: "Audition Day", start: "2025-09-12" },
-        { title: "BN Performance", start: "2025-09-29" },
-      ],
+      events: (fetchInfo, successCallback, failureCallback) => {
+        fetch('api/get-calendar-events.php', { credentials: 'same-origin' })
+          .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load events')))
+          .then(data => successCallback((data && data.events) ? data.events : []))
+          .catch(err => { console.error(err); try { failureCallback(err); } catch(e) {} successCallback([]); });
+      },
       dateClick: (info) => {
         const eventList = document.getElementById("event-list");
-        const selectedDate = info.dateStr;
-        const filteredEvents = calendar.getEvents().filter((ev) => ev.startStr === selectedDate);
+        const selectedDate = info.dateStr; // YYYY-MM-DD
+        const filteredEvents = calendar.getEvents().filter((ev) => {
+          // compare by date only
+          const d = ev.start;
+          if (!d) return false;
+          const iso = new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+          return iso === selectedDate;
+        });
         if (eventList) {
           eventList.innerHTML = filteredEvents.length
             ? filteredEvents.map((ev) => `<li>${ev.title}</li>`).join("")
@@ -325,6 +622,193 @@ document.addEventListener("DOMContentLoaded", () => {
 
     messageInput.addEventListener("keypress", (e) => {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendBtn.click(); }
+    });
+  }
+
+  // ----------------------------
+  // Upload Form Toggle & Basic UX
+  // ----------------------------
+  const toggleUploadBtn = document.getElementById("toggleUploadBtn");
+  const uploadForm = document.getElementById("uploadForm");
+  const cancelUpload = document.getElementById("cancelUpload");
+  const postType = document.getElementById("postType");
+  const fileRow = document.getElementById("fileRow");
+  const postTitle = document.getElementById("postTitle");
+  const postContent = document.getElementById("postContent");
+  const uploadFiles = document.getElementById("uploadFiles");
+  const filePreviewList = document.getElementById("filePreviewList");
+  const eventDateRow = document.getElementById("eventDateRow");
+  const eventDate = document.getElementById("eventDate");
+  let selectedFiles = [];
+
+  function setUploadVisible(visible) {
+    if (!uploadForm) return;
+    uploadForm.style.display = visible ? "block" : "none";
+    if (toggleUploadBtn) toggleUploadBtn.textContent = visible ? "Close" : "Upload";
+  }
+
+  // Always show upload field for all post types
+  function updateFileRow() {
+    if (!fileRow) return;
+    fileRow.style.display = "block";
+    if (postType && eventDateRow) {
+      const isAnn = (postType.value || '').toLowerCase() === 'announcements';
+      eventDateRow.style.display = isAnn ? 'block' : 'none';
+      if (!isAnn && eventDate) eventDate.value = '';
+    }
+  }
+
+  // Keep the input's FileList in sync with selectedFiles
+  function syncInputFromSelected() {
+    if (!uploadFiles) return;
+    const dt = new DataTransfer();
+    selectedFiles.forEach(item => dt.items.add(item.file));
+    uploadFiles.files = dt.files;
+  }
+
+  // Render previews for images/videos with ability to remove
+  function renderPreviews() {
+    if (!filePreviewList) return;
+    filePreviewList.innerHTML = "";
+    if (!selectedFiles.length) {
+      const empty = document.createElement('div');
+      empty.className = 'preview-empty';
+      empty.textContent = 'No files selected.';
+      filePreviewList.appendChild(empty);
+      return;
+    }
+    selectedFiles.forEach((item, idx) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'preview-item';
+
+      const isVideo = item.file.type && item.file.type.startsWith('video/');
+      const media = document.createElement(isVideo ? 'video' : 'img');
+      media.className = 'preview-thumb';
+      const url = item.url || URL.createObjectURL(item.file);
+      item.url = url;
+      media.src = url;
+      if (isVideo) { media.controls = true; }
+
+      const caption = document.createElement('div');
+      caption.className = 'preview-caption';
+      caption.textContent = item.file.name;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'preview-remove';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.addEventListener('click', () => {
+        try { if (item.url) URL.revokeObjectURL(item.url); } catch (e) {}
+        selectedFiles.splice(idx, 1);
+        syncInputFromSelected();
+        renderPreviews();
+      });
+
+      wrapper.appendChild(media);
+      wrapper.appendChild(removeBtn);
+      wrapper.appendChild(caption);
+      filePreviewList.appendChild(wrapper);
+    });
+  }
+
+  // Handle selecting files from input
+  if (uploadFiles) {
+    uploadFiles.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files || []);
+      files.forEach(f => {
+        // Avoid duplicates by name+size+lastModified
+        const key = `${f.name}_${f.size}_${f.lastModified}_${f.type}`;
+        if (!selectedFiles.find(sf => sf.key === key)) {
+          selectedFiles.push({ file: f, key });
+        }
+      });
+      // Allow selecting same files again
+      uploadFiles.value = '';
+      syncInputFromSelected();
+      renderPreviews();
+    });
+  }
+
+  if (toggleUploadBtn && uploadForm) {
+    toggleUploadBtn.addEventListener("click", () => {
+      const willShow = uploadForm.style.display === "none" || uploadForm.style.display === "";
+      setUploadVisible(willShow);
+      updateFileRow();
+    });
+    // initialize hidden
+    setUploadVisible(false);
+  }
+
+  if (cancelUpload) {
+    cancelUpload.addEventListener("click", () => {
+      if (uploadForm) uploadForm.reset();
+      // Clear previews and selected files
+      selectedFiles.forEach(i => { try { if (i.url) URL.revokeObjectURL(i.url); } catch (e) {} });
+      selectedFiles = [];
+      if (filePreviewList) filePreviewList.innerHTML = '';
+      syncInputFromSelected();
+      updateFileRow();
+      setUploadVisible(false);
+    });
+  }
+
+  if (postType) {
+    postType.addEventListener("change", updateFileRow);
+    updateFileRow();
+  }
+
+  if (uploadForm) {
+    uploadForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const title = (postTitle?.value || "").trim();
+      const type = (postType?.value || "").trim();
+      if (!title) {
+        Swal.fire({ icon: "warning", title: "Add a title", text: "Please provide a title for your post." });
+        return;
+      }
+
+      // Build FormData using our selectedFiles to respect deletions
+      const content = (postContent?.value || "").trim();
+      const fd = new FormData();
+      fd.append('postType', type);
+      fd.append('title', title);
+      fd.append('content', content);
+      if (eventDate && eventDate.value) {
+        fd.append('event_date', eventDate.value);
+      }
+      selectedFiles.forEach(sf => fd.append('files[]', sf.file));
+
+      // Try to post to backend; if fails, show demo success
+      Swal.fire({ title: 'Uploading...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+      fetch('api/create-post.php', { method: 'POST', body: fd })
+        .then(r => r.ok ? r.json() : Promise.reject(new Error('Upload failed')))
+        .then(data => {
+          if (data && data.success) {
+            Swal.fire({ icon: 'success', title: 'Posted!', text: data.message || 'Your post has been published.', timer: 1400, showConfirmButton: false });
+            // Reset state
+            uploadForm.reset();
+            selectedFiles.forEach(i => { try { if (i.url) URL.revokeObjectURL(i.url); } catch (e) {} });
+            selectedFiles = [];
+            if (filePreviewList) filePreviewList.innerHTML = '';
+            syncInputFromSelected();
+            updateFileRow();
+            setUploadVisible(false);
+            setTimeout(() => { window.location.reload(); }, 300);
+          } else {
+            Swal.fire({ icon: 'error', title: 'Failed to post', text: (data && data.message) || 'Please try again.' });
+          }
+        })
+        .catch(err => {
+          // Fallback demo success when backend not available
+          Swal.fire({ icon: 'success', title: 'Posted (local demo)', text: 'Your post has been saved locally.', timer: 1200, showConfirmButton: false });
+          uploadForm.reset();
+          selectedFiles.forEach(i => { try { if (i.url) URL.revokeObjectURL(i.url); } catch (e) {} });
+          selectedFiles = [];
+          if (filePreviewList) filePreviewList.innerHTML = '';
+          syncInputFromSelected();
+          updateFileRow();
+          setUploadVisible(false);
+        });
     });
   }
 

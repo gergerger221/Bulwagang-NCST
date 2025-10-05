@@ -18,7 +18,7 @@ class AccountManager {
      * Generate a secure random password
      */
     public function generateRandomPassword($length = 12) {
-        $characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+        $characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
         $password = '';
         $charactersLength = strlen($characters);
         

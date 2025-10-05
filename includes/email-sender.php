@@ -5,6 +5,21 @@
  */
 
 require_once __DIR__ . '/config.php';
+// Attempt to load local PHPMailer if available
+if (!class_exists('PHPMailer\\PHPMailer\\PHPMailer')) {
+    $phpMailerCandidates = [
+        dirname(__DIR__) . '/PHPMailer-master/src/',
+        dirname(__DIR__) . '/PHPMailer-master/PHPMailer-master/src/'
+    ];
+    foreach ($phpMailerCandidates as $path) {
+        if (file_exists($path . 'PHPMailer.php')) {
+            require_once $path . 'PHPMailer.php';
+            if (file_exists($path . 'SMTP.php')) require_once $path . 'SMTP.php';
+            if (file_exists($path . 'Exception.php')) require_once $path . 'Exception.php';
+            break;
+        }
+    }
+}
 
 class EmailSender {
     private $fromEmail;
@@ -28,12 +43,17 @@ class EmailSender {
      * Send email using PHP's mail() function (for development)
      */
     public function sendEmail($to, $subject, $bodyHtml, $bodyText = null) {
-        // Prefer SMTP when configured
+        // Prefer PHPMailer when available (with SMTP configured)
+        if ($this->canUsePHPMailer()) {
+            return $this->sendEmailPHPMailer($to, $subject, $bodyHtml, $bodyText);
+        }
+        // Otherwise prepend logo via absolute URL and use existing transports
+        $bodyWithLogo = $this->prependLogoToHtml($bodyHtml);
         if (!empty($this->smtpHost) && !empty($this->smtpUsername) && !empty($this->smtpPassword)) {
-            return $this->sendEmailSMTP($to, $subject, $bodyHtml, $bodyText);
+            return $this->sendEmailSMTP($to, $subject, $bodyWithLogo, $bodyText);
         }
         // Fallback to log (useful on localhost)
-        return $this->logEmail($to, $subject, $bodyHtml, $bodyText);
+        return $this->logEmail($to, $subject, $bodyWithLogo, $bodyText);
     }
     
     /**
@@ -88,6 +108,65 @@ $bodyHtml
             
         } catch (Exception $e) {
             error_log("Email logging error: " . $e->getMessage());
+            return false;
+        }
+    }
+    
+    // Determine if PHPMailer can be used
+    private function canUsePHPMailer() {
+        return class_exists('PHPMailer\\PHPMailer\\PHPMailer')
+            && !empty($this->smtpHost)
+            && !empty($this->smtpUsername)
+            && !empty($this->smtpPassword);
+    }
+
+    // Prepend SITE_LOGO to HTML body. If $cid provided, use it (embedded image); otherwise use absolute URL.
+    private function prependLogoToHtml($html, $cid = null) {
+        $header = '';
+        if ($cid) {
+            $header = '<div style="text-align:center;margin-bottom:16px"><img alt="Logo" src="cid:' . htmlspecialchars($cid, ENT_QUOTES) . '" style="max-width:180px;"/></div>';
+        } else if (defined('SITE_LOGO')) {
+            $base = (isset($_SERVER['HTTP_HOST']) ? ('http://' . $_SERVER['HTTP_HOST']) : '') . (defined('BASE_URL') ? BASE_URL : '/');
+            $url = $base . ltrim(SITE_LOGO, '/');
+            $header = '<div style="text-align:center;margin-bottom:16px"><img alt="Logo" src="' . htmlspecialchars($url, ENT_QUOTES) . '" style="max-width:180px;"/></div>';
+        }
+        return $header . $html;
+    }
+
+    // Send using local PHPMailer with embedded logo
+    public function sendEmailPHPMailer($to, $subject, $bodyHtml, $bodyText = null) {
+        try {
+            $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+            $mail->isSMTP();
+            $mail->Host = $this->smtpHost;
+            $mail->SMTPAuth = true;
+            $mail->Username = $this->smtpUsername;
+            $mail->Password = $this->smtpPassword;
+            $mail->Port = $this->smtpPort ?: 587;
+            $mail->SMTPSecure = \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->CharSet = 'UTF-8';
+
+            $mail->setFrom($this->fromEmail, $this->fromName);
+            $mail->addAddress($to);
+
+            $cid = null;
+            if (defined('SITE_LOGO')) {
+                $logoPath = dirname(__DIR__) . '/' . ltrim(SITE_LOGO, '/\\');
+                if (is_file($logoPath)) {
+                    $cid = 'site_logo';
+                    $mail->addEmbeddedImage($logoPath, $cid, basename($logoPath));
+                }
+            }
+
+            $mail->isHTML(true);
+            $mail->Subject = $subject;
+            $mail->Body = $this->prependLogoToHtml($bodyHtml, $cid);
+            $mail->AltBody = $bodyText ?: strip_tags($bodyHtml);
+
+            $mail->send();
+            return true;
+        } catch (\Exception $e) {
+            error_log('PHPMailer error: ' . $e->getMessage());
             return false;
         }
     }

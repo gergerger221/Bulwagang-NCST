@@ -2,7 +2,7 @@
 // Site Configuration
 define('SITE_NAME', 'Bulwagang NCST');
 define('SITE_LOGO', 'asset/img/bg-png.png');
-define('BASE_URL', '/Project(1)/');
+define('BASE_URL', '/Bulwagang-NCST/');
 
 // SMTP configuration (Gmail)
 define('SMTP_HOST', 'smtp.gmail.com');
