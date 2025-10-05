@@ -12,20 +12,6 @@ include 'includes/head.php';
     </a>
 </div>
 
-<div class="slider">
-    <div class="slides">
-        <div class="slide">
-            <img src="asset/img/slideshow1.jpg" alt="Slide 1">
-        </div>
-        <div class="slide">
-            <img src="/asset/img/audition-copy.jpg" alt="Slide 2">
-        </div>
-        <div class="slide">
-            <img src="asset/img/audition-copy(2).jpg" alt="Slide 3">
-        </div>
-    </div>
-</div>
-
 <div class="wrapper">
     <div class="container-fluid">
         <div class="row justify-content-center align-items-center min-vh-100">
